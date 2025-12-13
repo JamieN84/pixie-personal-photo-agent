@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Starlight Picker – Prototype</title>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+    <style>
+      body {
+        margin: 0;
+        font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: radial-gradient(circle at 20% 20%, #1b1f3b, #050711 60%);
+        color: #e6ecff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+      }
+
+      #wrapper {
+        text-align: center;
+        width: 900px;
+      }
+
+      #game-container {
+        margin: 0 auto;
+        box-shadow: 0 12px 35px rgba(5, 7, 17, 0.6);
+        border: 1px solid #2c335d;
+      }
+
+      p {
+        color: #a4b0d6;
+        margin-top: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="wrapper">
+      <h1>Starlight Picker</h1>
+      <div id="game-container"></div>
+      <p>
+        Use the arrow keys to glide, collect golden starlight for points, dodge blue debris, and press
+        <strong>R</strong> to restart after a run.
+      </p>
+    </div>
+
+    <script>
+      class StarlightScene extends Phaser.Scene {
+        constructor() {
+          super('StarlightScene');
+          this.cursors = null;
+          this.player = null;
+          this.starGroup = null;
+          this.debrisGroup = null;
+          this.scoreText = null;
+          this.statusText = null;
+          this.score = 0;
+          this.hearts = 3;
+          this.gameActive = true;
+          this.spawnTimers = [];
+        }
+
+        preload() {
+          this.createTextures();
+        }
+
+        create() {
+          this.cursors = this.input.keyboard.createCursorKeys();
+          this.input.keyboard.on('keydown-R', () => this.resetRun());
+
+          this.createBackgroundStars();
+          this.createPlayer();
+          this.createGroups();
+          this.createUI();
+          this.startSpawners();
+        }
+
+        update() {
+          if (!this.gameActive) return;
+
+          const speed = 260;
+          this.player.setVelocity(0, 0);
+
+          if (this.cursors.left.isDown) {
+            this.player.setVelocityX(-speed);
+          } else if (this.cursors.right.isDown) {
+            this.player.setVelocityX(speed);
+          }
+
+          if (this.cursors.up.isDown) {
+            this.player.setVelocityY(-speed);
+          } else if (this.cursors.down.isDown) {
+            this.player.setVelocityY(speed);
+          }
+
+          Phaser.Math.Clamp(this.player.x, 24, this.scale.width - 24);
+          Phaser.Math.Clamp(this.player.y, 24, this.scale.height - 24);
+        }
+
+        createTextures() {
+          const star = this.make.graphics({ x: 0, y: 0, add: false });
+          star.fillStyle(0xffd166, 1);
+          star.fillCircle(12, 12, 10);
+          star.generateTexture('starlight', 24, 24);
+
+          const debris = this.make.graphics({ x: 0, y: 0, add: false });
+          debris.fillStyle(0x4dd0e1, 1);
+          debris.fillRoundedRect(0, 0, 22, 22, 6);
+          debris.generateTexture('debris', 22, 22);
+
+          const ship = this.make.graphics({ x: 0, y: 0, add: false });
+          ship.fillStyle(0xf28482, 1);
+          ship.fillTriangle(14, 0, 28, 28, 0, 28);
+          ship.fillStyle(0xfff5e1, 1);
+          ship.fillTriangle(14, 4, 22, 26, 6, 26);
+          ship.generateTexture('ship', 28, 28);
+        }
+
+        createBackgroundStars() {
+          const particles = this.add.particles(0, 0, 'starlight', {
+            x: { min: 0, max: this.scale.width },
+            y: { min: 0, max: this.scale.height },
+            lifespan: { min: 4000, max: 8000 },
+            speedY: { min: 5, max: 20 },
+            speedX: { min: -5, max: 5 },
+            scale: { start: 0.25, end: 0 },
+            alpha: { start: 0.6, end: 0 },
+            quantity: 2,
+            frequency: 300,
+            blendMode: 'ADD'
+          });
+          particles.setDepth(-1);
+        }
+
+        createPlayer() {
+          this.player = this.physics.add.sprite(this.scale.width / 2, this.scale.height - 70, 'ship');
+          this.player.setCollideWorldBounds(true);
+          this.player.body.setSize(18, 24).setOffset(5, 2);
+        }
+
+        createGroups() {
+          this.starGroup = this.physics.add.group();
+          this.debrisGroup = this.physics.add.group();
+
+          this.physics.add.overlap(this.player, this.starGroup, (_player, star) => {
+            star.destroy();
+            this.adjustScore(10);
+          });
+
+          this.physics.add.overlap(this.player, this.debrisGroup, (_player, rock) => {
+            if (!this.gameActive) return;
+            rock.destroy();
+            this.applyDamage();
+          });
+        }
+
+        createUI() {
+          this.scoreText = this.add.text(12, 12, '', {
+            fontSize: '18px',
+            fontFamily: 'monospace',
+            color: '#f8f9fb'
+          });
+
+          this.statusText = this.add.text(this.scale.width / 2, this.scale.height / 2, '', {
+            fontSize: '28px',
+            fontFamily: 'monospace',
+            color: '#f8f9fb'
+          }).setOrigin(0.5);
+
+          this.updateHUD();
+        }
+
+        startSpawners() {
+          this.clearSpawners();
+          this.spawnTimers.push(
+            this.time.addEvent({ delay: 750, loop: true, callback: () => this.spawnStar() })
+          );
+          this.spawnTimers.push(
+            this.time.addEvent({ delay: 1300, loop: true, callback: () => this.spawnDebris() })
+          );
+        }
+
+        clearSpawners() {
+          this.spawnTimers.forEach((timer) => timer.destroy());
+          this.spawnTimers = [];
+        }
+
+        spawnStar() {
+          if (!this.gameActive) return;
+          const x = Phaser.Math.Between(30, this.scale.width - 30);
+          const star = this.starGroup.create(x, -30, 'starlight');
+          star.setVelocityY(Phaser.Math.Between(140, 220));
+        }
+
+        spawnDebris() {
+          if (!this.gameActive) return;
+          const x = Phaser.Math.Between(30, this.scale.width - 30);
+          const rock = this.debrisGroup.create(x, -30, 'debris');
+          rock.setVelocityY(Phaser.Math.Between(110, 180));
+          rock.setAngularVelocity(Phaser.Math.Between(-90, 90));
+        }
+
+        adjustScore(amount) {
+          this.score += amount;
+          this.updateHUD();
+        }
+
+        applyDamage() {
+          if (!this.gameActive) return;
+
+          this.hearts -= 1;
+          this.player.setTintFill(0xffd166);
+          this.time.delayedCall(150, () => this.player.clearTint());
+          this.updateHUD();
+
+          if (this.hearts <= 0) {
+            this.endRun('Hull integrity lost');
+          }
+        }
+
+        updateHUD() {
+          this.scoreText.setText(`Score: ${this.score}  |  Hearts: ${this.hearts}`);
+        }
+
+        endRun(message) {
+          this.gameActive = false;
+          this.clearSpawners();
+          this.statusText.setText(`${message}\nPress R to fly again`);
+
+          this.starGroup.setVelocityY(0);
+          this.debrisGroup.setVelocityY(0);
+          this.player.setVelocity(0, 0);
+        }
+
+        resetRun() {
+          this.gameActive = true;
+          this.score = 0;
+          this.hearts = 3;
+          this.statusText.setText('');
+          this.starGroup.clear(true, true);
+          this.debrisGroup.clear(true, true);
+          this.player.setPosition(this.scale.width / 2, this.scale.height - 70);
+          this.updateHUD();
+          this.startSpawners();
+        }
+      }
+
+      const config = {
+        type: Phaser.AUTO,
+        parent: 'game-container',
+        width: 800,
+        height: 600,
+        backgroundColor: '#060b1a',
+        physics: {
+          default: 'arcade',
+          arcade: { gravity: { y: 0 }, debug: false }
+        },
+        scene: [StarlightScene]
+      };
+
+      new Phaser.Game(config);
+    </script>
+  </body>
+</html>

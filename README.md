@@ -22,4 +22,8 @@ Pixie's product vision and detailed workflows are documented in the `docs/` dire
 - ["To sort" workflow and preference handling](docs/to-sort-workflow.md)
 - [Folder organisation system design](docs/system-design.md)
 
+## Experiments
+- **Playground launcher** – Start a static server from the repo root (e.g., `python -m http.server 8000`) and open `http://localhost:8000/` to get a landing page that links to available prototypes.
+- **Starlight Picker prototype** – A Phaser-based proof of concept described in [docs/specifications/initial-concept.md](docs/specifications/initial-concept.md) and playable at `games/starlight-picker/index.html` when served locally with a static web server.
+
 Contributors should review these documents before proposing new features so that design and implementation decisions stay aligned with Pixie's mission.
